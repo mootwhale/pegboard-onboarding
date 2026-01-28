@@ -60,26 +60,104 @@ export default function ProjectOnboardingApp() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setSubmitStatus(null);
     
-    // Simulate API call - in production, this would call Monday.com API
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    setIsSubmitting(false);
-    setSubmitStatus('success');
-    
-    // Reset form after success
-    setTimeout(() => {
-      setFormData({
-        customerName: '',
-        group: 'group_mkz8s39b',
-        firmInHandsDate: '',
-        csr: '',
-        item: '',
-        priority: '',
-        notes: '',
+    try {
+      // Build column values for Monday.com API
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+      
+      const columnValues = {
+        // Order Date (auto-filled with today)
+        "date_mkvfwqas": { "date": today },
+        // CSR (people column)
+        "multiple_person_mkxv4380": { "personsAndTeams": [{ "id": parseInt(formData.csr), "kind": "person" }] },
+      };
+      
+      // Add optional fields only if they have values
+      if (formData.firmInHandsDate) {
+        columnValues["date_mkyecq8g"] = { "date": formData.firmInHandsDate };
+      }
+      
+      if (formData.item) {
+        columnValues["text_mkvf1a82"] = formData.item;
+      }
+      
+      if (formData.priority) {
+        columnValues["priority_1"] = { "label": priorities.find(p => p.id === formData.priority)?.label.replace(' ⚠️', '') || '' };
+      }
+      
+      if (formData.notes) {
+        columnValues["text9"] = formData.notes;
+      }
+      
+      // GraphQL mutation to create item
+      const mutation = `
+        mutation CreateItem($boardId: ID!, $groupId: String!, $itemName: String!, $columnValues: JSON!) {
+          create_item(
+            board_id: $boardId,
+            group_id: $groupId,
+            item_name: $itemName,
+            column_values: $columnValues
+          ) {
+            id
+            name
+          }
+        }
+      `;
+      
+      const variables = {
+        boardId: "9975098442",
+        groupId: formData.group,
+        itemName: formData.customerName,
+        columnValues: JSON.stringify(columnValues)
+      };
+      
+      const response = await fetch('https://api.monday.com/v2', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': process.env.REACT_APP_MONDAY_API_TOKEN,
+          'API-Version': '2024-01'
+        },
+        body: JSON.stringify({
+          query: mutation,
+          variables: variables
+        })
       });
-      setSubmitStatus(null);
-    }, 2000);
+      
+      const result = await response.json();
+      
+      if (result.errors) {
+        throw new Error(result.errors[0]?.message || 'Failed to create item');
+      }
+      
+      if (result.data?.create_item?.id) {
+        setSubmitStatus('success');
+        
+        // Reset form after success
+        setTimeout(() => {
+          setFormData({
+            customerName: '',
+            group: 'group_mkz8s39b',
+            firmInHandsDate: '',
+            csr: '',
+            item: '',
+            priority: '',
+            notes: '',
+          });
+          setSubmitStatus(null);
+        }, 2000);
+      } else {
+        throw new Error('No item ID returned');
+      }
+      
+    } catch (error) {
+      console.error('Error creating item:', error);
+      setSubmitStatus('error');
+      setTimeout(() => setSubmitStatus(null), 3000);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const isFormValid = formData.customerName && formData.csr;
@@ -259,7 +337,8 @@ export default function ProjectOnboardingApp() {
             style={{
               ...styles.submitButton,
               ...((!isFormValid || isSubmitting) ? styles.submitButtonDisabled : {}),
-              ...(submitStatus === 'success' ? styles.submitButtonSuccess : {})
+              ...(submitStatus === 'success' ? styles.submitButtonSuccess : {}),
+              ...(submitStatus === 'error' ? styles.submitButtonError : {})
             }}
           >
             {isSubmitting ? (
@@ -273,6 +352,15 @@ export default function ProjectOnboardingApp() {
                   <polyline points="20 6 9 17 4 12"/>
                 </svg>
                 Project Created!
+              </span>
+            ) : submitStatus === 'error' ? (
+              <span style={styles.successContainer}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="15" y1="9" x2="9" y2="15"/>
+                  <line x1="9" y1="9" x2="15" y2="15"/>
+                </svg>
+                Error - Please Try Again
               </span>
             ) : (
               <>
@@ -573,6 +661,10 @@ const styles = {
   submitButtonSuccess: {
     background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
     boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
+  },
+  submitButtonError: {
+    background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+    boxShadow: '0 4px 14px rgba(239, 68, 68, 0.35)',
   },
   loadingContainer: {
     display: 'flex',
